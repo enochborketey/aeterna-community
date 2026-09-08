@@ -393,6 +393,93 @@ bot.action("profile", async (ctx) => {
   }
 });
 
+// ================================
+// LEADERBOARD
+// ================================
+
+bot.action("leaderboard", async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+
+    const { data: members, error } = await supabase
+      .from("members")
+      .select(
+        "display_name, telegram_username, total_xp, level"
+      )
+      .eq("is_active", true)
+      .eq("is_banned", false)
+      .order("total_xp", { ascending: false })
+      .limit(10);
+
+    if (error) {
+      console.error("Leaderboard lookup error:", error);
+      await ctx.reply(
+        "Could not load the leaderboard. Please try again."
+      );
+      return;
+    }
+
+    if (!members || members.length === 0) {
+      await ctx.reply(
+        "🏆 The Aeterna leaderboard is empty for now."
+      );
+      return;
+    }
+
+    let leaderboard = `🏆 *AETERNA LEADERBOARD*\n\n`;
+
+    members.forEach((member, index) => {
+      const position = index + 1;
+
+      let rank = `${position}.`;
+
+      if (position === 1) rank = "🥇";
+      if (position === 2) rank = "🥈";
+      if (position === 3) rank = "🥉";
+
+      const name =
+        member.display_name ||
+        (member.telegram_username
+          ? `@${member.telegram_username}`
+          : "Aeterna Member");
+
+      leaderboard +=
+        `${rank} *${name}*\n` +
+        `   ⭐ ${member.total_xp} XP · Level ${member.level}\n\n`;
+    });
+
+    await ctx.reply(leaderboard, {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback(
+            "👤 My Profile",
+            "profile"
+          ),
+        ],
+        [
+          Markup.button.callback(
+            "🎯 Daily Check-in",
+            "daily_checkin"
+          ),
+        ],
+        [
+          Markup.button.callback(
+            "🔙 Community Hub",
+            "community_menu"
+          ),
+        ],
+      ]),
+    });
+  } catch (error) {
+    console.error("Leaderboard handler error:", error);
+
+    await ctx.reply(
+      "Something went wrong while loading the leaderboard."
+    );
+  }
+});
+
 
 // ================================
 // TELEGRAM WEBHOOK
