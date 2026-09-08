@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
 import { Telegraf, Markup } from "telegraf";
 import { supabase } from "@/lib/supabase";
 
@@ -70,6 +71,101 @@ bot.start(async (ctx) => {
 
     await ctx.reply(
       "Something went wrong while setting up your account. Please try again."
+    );
+  }
+});
+
+// ================================
+// ZEALY CONNECT
+// ================================
+
+bot.command("connect", async (ctx) => {
+  try {
+    const telegramId = String(ctx.from.id);
+
+    // Find the Aeterna member
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id, is_banned")
+      .eq("telegram_id", telegramId)
+      .maybeSingle();
+
+    if (memberError) {
+      console.error("Connect member lookup error:", memberError);
+      await ctx.reply("Something went wrong. Please try again.");
+      return;
+    }
+
+    if (!member) {
+      await ctx.reply(
+        "You haven't registered yet.\n\nPlease send /start first."
+      );
+      return;
+    }
+
+    if (member.is_banned) {
+      await ctx.reply(
+        "Your Aeterna account is currently restricted from participating."
+      );
+      return;
+    }
+
+    // Generate a secure one-time code
+    const randomPart = crypto
+      .randomBytes(6)
+      .toString("hex")
+      .toUpperCase();
+
+    const code = `AET-${randomPart}`;
+
+    // Code is valid for 10 minutes
+    const expiresAt = new Date(
+      Date.now() + 10 * 60 * 1000
+    ).toISOString();
+
+    // Remove previous unused codes for this member
+    const { error: deleteError } = await supabase
+      .from("zealy_link_codes")
+      .delete()
+      .eq("member_id", member.id)
+      .is("used_at", null);
+
+    if (deleteError) {
+      console.error("Old link code cleanup error:", deleteError);
+      await ctx.reply("Could not create your connection code. Please try again.");
+      return;
+    }
+
+    // Save new code
+    const { error: insertError } = await supabase
+      .from("zealy_link_codes")
+      .insert({
+        member_id: member.id,
+        code,
+        expires_at: expiresAt,
+      });
+
+    if (insertError) {
+      console.error("Link code creation error:", insertError);
+      await ctx.reply("Could not create your connection code. Please try again.");
+      return;
+    }
+
+    await ctx.reply(
+      `🔗 Connect your Aeterna account to Zealy\n\n` +
+        `Your one-time connection code is:\n\n` +
+        `\`${code}\`\n\n` +
+        `⏰ This code expires in 10 minutes.\n\n` +
+        `Keep this code private. We'll use it to connect your Telegram account to your Zealy account.`,
+      {
+        parse_mode: "Markdown",
+      }
+    );
+  } catch (error) {
+    console.error("Connect command error:", error);
+
+    await ctx.reply(
+      "Something went wrong while creating your Zealy connection code."
     );
   }
 });
