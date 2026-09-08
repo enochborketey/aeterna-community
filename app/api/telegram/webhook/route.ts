@@ -95,6 +95,31 @@ bot.start(async (ctx) => {
 });
 
 // ================================
+// COMMUNITY MENU
+// ================================
+
+bot.command("menu", async (ctx) => {
+  try {
+    await ctx.reply(
+      `🌟 *Aeterna Community Hub*\n\n` +
+        `Everything you need is right here.\n\n` +
+        `🎯 Check in daily\n` +
+        `📋 Complete quests\n` +
+        `⭐ Earn XP\n` +
+        `🏆 Climb the leaderboard\n` +
+        `🎁 Unlock rewards`,
+      {
+        parse_mode: "Markdown",
+        ...communityMenu(),
+      }
+    );
+  } catch (error) {
+    console.error("Community menu error:", error);
+    await ctx.reply("Something went wrong.");
+  }
+});
+
+// ================================
 // ZEALY CONNECT
 // ================================
 
