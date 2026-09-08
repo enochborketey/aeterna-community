@@ -311,6 +311,90 @@ bot.action("daily_checkin", async (ctx) => {
 });
 
 // ================================
+// MY PROFILE
+// ================================
+
+bot.action("profile", async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+
+    const telegramId = String(ctx.from.id);
+
+    const { data: member, error } = await supabase
+      .from("members")
+      .select(
+        "display_name, telegram_username, total_xp, level, is_banned"
+      )
+      .eq("telegram_id", telegramId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Profile lookup error:", error);
+      await ctx.reply("Could not load your profile. Please try again.");
+      return;
+    }
+
+    if (!member) {
+      await ctx.reply(
+        "You haven't registered yet.\n\nPlease send /start first."
+      );
+      return;
+    }
+
+    if (member.is_banned) {
+      await ctx.reply(
+        "Your Aeterna account is currently restricted from participating."
+      );
+      return;
+    }
+
+    const name = member.display_name || "Aeterna Member";
+
+    const username = member.telegram_username
+      ? `@${member.telegram_username}`
+      : "Not set";
+
+    await ctx.reply(
+      `👤 *Your Aeterna Profile*\n\n` +
+        `Name: ${name}\n` +
+        `Username: ${username}\n\n` +
+        `⭐ XP: ${member.total_xp}\n` +
+        `🏆 Level: ${member.level}`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(
+              "🎯 Daily Check-in",
+              "daily_checkin"
+            ),
+          ],
+          [
+            Markup.button.callback(
+              "🏆 Leaderboard",
+              "leaderboard"
+            ),
+          ],
+          [
+            Markup.button.callback(
+              "🔙 Community Hub",
+              "community_menu"
+            ),
+          ],
+        ]),
+      }
+    );
+  } catch (error) {
+    console.error("Profile handler error:", error);
+
+    await ctx.reply(
+      "Something went wrong while loading your profile."
+    );
+  }
+});
+
+
+// ================================
 // TELEGRAM WEBHOOK
 // ================================
 
