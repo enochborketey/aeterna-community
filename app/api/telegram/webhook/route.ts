@@ -3,7 +3,26 @@ import crypto from "crypto";
 import { Telegraf, Markup } from "telegraf";
 import { supabase } from "@/lib/supabase";
 
+
+
 const token = process.env.TELEGRAM_BOT_TOKEN;
+
+function communityMenu() {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback("🎯 Daily Check-in", "daily_checkin"),
+      Markup.button.callback("👤 My Profile", "profile"),
+    ],
+    [
+      Markup.button.callback("📋 Quest Center", "quests"),
+      Markup.button.callback("🏆 Leaderboard", "leaderboard"),
+    ],
+    [
+      Markup.button.callback("🎁 Rewards", "rewards"),
+      Markup.button.callback("🔗 Connect Account", "connect_account"),
+    ],
+  ]);
+}
 
 if (!token) {
   throw new Error("Missing TELEGRAM_BOT_TOKEN");
