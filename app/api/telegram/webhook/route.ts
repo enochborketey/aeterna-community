@@ -321,7 +321,7 @@ bot.action("quests", async (ctx) => {
     const { data: quests, error } = await supabase
       .from("quests")
       .select(
-        "id, name, description, platform, xp_reward, quest_type"
+        "id, name, description, platform, xp_reward, quest_type, created_at"
       )
       .eq("is_active", true)
       .eq("platform", "telegram")
@@ -373,9 +373,18 @@ bot.action("quests", async (ctx) => {
         `⭐ Reward: *+${quest.xp_reward} XP*\n\n`;
     });
 
+    // Create one button for each quest
+    const questButtons = quests.map((quest) => [
+      Markup.button.callback(
+        `🚀 Start: ${quest.name}`,
+        `start_quest_${quest.id}`
+      ),
+    ]);
+
     await ctx.reply(message, {
       parse_mode: "Markdown",
       ...Markup.inlineKeyboard([
+        ...questButtons,
         [
           Markup.button.callback(
             "🎯 Daily Check-in",
@@ -408,7 +417,6 @@ bot.action("quests", async (ctx) => {
     );
   }
 });
-
 // ================================
 // MY PROFILE
 // ================================
