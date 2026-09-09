@@ -30,6 +30,13 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
+const activeQuestSessions = new Map<
+  string,
+  {
+    questId: string;
+    startedAt: number;
+  }
+>();
 // ================================
 // REGISTER / START
 // ================================
@@ -417,6 +424,406 @@ bot.action("quests", async (ctx) => {
     );
   }
 });
+
+// ================================
+// START QUEST
+// ================================
+
+bot.action(/^start_quest_(.+)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+
+    const questId = ctx.match[1];
+    const telegramId = String(ctx.from.id);
+
+    // Find the member
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id, is_banned")
+      .eq("telegram_id", telegramId)
+      .maybeSingle();
+
+    if (memberError) {
+      console.error("Start quest member lookup error:", memberError);
+      await ctx.reply("Something went wrong. Please try again.");
+      return;
+    }
+
+    if (!member) {
+      await ctx.reply(
+        "You haven't registered yet.\n\nPlease send /start first."
+      );
+      return;
+    }
+
+    if (member.is_banned) {
+      await ctx.reply(
+        "Your Aeterna account is currently restricted from participating."
+      );
+      return;
+    }
+
+    // Find the quest
+    const { data: quest, error: questError } = await supabase
+      .from("quests")
+      .select("id, name, description, xp_reward, is_active")
+      .eq("id", questId)
+      .maybeSingle();
+
+    if (questError) {
+      console.error("Start quest lookup error:", questError);
+      await ctx.reply("Could not load this quest. Please try again.");
+      return;
+    }
+
+    if (!quest || !quest.is_active) {
+      await ctx.reply(
+        "This quest is no longer available."
+      );
+      return;
+    }
+
+    // Check whether the member already completed it
+    const { data: existingCompletion, error: completionError } =
+      await supabase
+        .from("quest_completions")
+        .select("id, verified")
+        .eq("member_id", member.id)
+        .eq("quest_id", quest.id)
+        .maybeSingle();
+
+    if (completionError) {
+      console.error(
+        "Existing quest completion lookup error:",
+        completionError
+      );
+
+      await ctx.reply(
+        "Could not check your quest status. Please try again."
+      );
+
+      return;
+    }
+
+    if (existingCompletion?.verified) {
+      await ctx.reply(
+        `✅ *Quest already completed!*\n\n` +
+          `You have already completed *${quest.name}*.\n\n` +
+          `⭐ XP earned: +${quest.xp_reward}`,
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback(
+                "📋 Quest Center",
+                "quests"
+              ),
+            ],
+            [
+              Markup.button.callback(
+                "👤 My Profile",
+                "profile"
+              ),
+            ],
+          ]),
+        }
+      );
+
+      return;
+    }
+
+    // Store the active quest for this Telegram user
+    activeQuestSessions.set(telegramId, {
+      questId: quest.id,
+      startedAt: Date.now(),
+    });
+
+    await ctx.reply(
+      `🚀 *Quest Started!*\n\n` +
+        `*${quest.name}*\n\n` +
+        `${quest.description || ""}\n\n` +
+        `⭐ Reward: *+${quest.xp_reward} XP*\n\n` +
+        `Now send your introduction in your next message.\n\n` +
+        `💡 Tell us who you are, what you do, and why you joined Aeterna.\n\n` +
+        `Your introduction should be at least *20 characters*.`,
+      {
+        parse_mode: "Markdown",
+      }
+    );
+  } catch (error) {
+    console.error("Start quest handler error:", error);
+
+    await ctx.reply(
+      "Something went wrong while starting the quest."
+    );
+  }
+});
+
+// ================================
+// QUEST SUBMISSION
+// ================================
+
+bot.on("text", async (ctx, next) => {
+  try {
+    const telegramId = String(ctx.from.id);
+    const messageText = ctx.message.text.trim();
+
+    // Ignore commands
+    if (messageText.startsWith("/")) {
+      return next();
+    }
+
+    // Check whether this member has an active quest
+    const session = activeQuestSessions.get(telegramId);
+
+    if (!session) {
+      return next();
+    }
+
+    // Sessions expire after 15 minutes
+    const sessionAge = Date.now() - session.startedAt;
+
+    if (sessionAge > 15 * 60 * 1000) {
+      activeQuestSessions.delete(telegramId);
+
+      await ctx.reply(
+        `⏰ *Quest session expired.*\n\n` +
+          `Please open the Quest Center and start the quest again.`,
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback(
+                "📋 Quest Center",
+                "quests"
+              ),
+            ],
+          ]),
+        }
+      );
+
+      return;
+    }
+
+    // Get member
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id, total_xp, level, is_banned")
+      .eq("telegram_id", telegramId)
+      .maybeSingle();
+
+    if (memberError || !member) {
+      console.error(
+        "Quest submission member lookup error:",
+        memberError
+      );
+
+      await ctx.reply(
+        "Could not find your Aeterna account. Please send /start."
+      );
+
+      return;
+    }
+
+    if (member.is_banned) {
+      activeQuestSessions.delete(telegramId);
+
+      await ctx.reply(
+        "Your Aeterna account is currently restricted from participating."
+      );
+
+      return;
+    }
+
+    // Get quest
+    const { data: quest, error: questError } = await supabase
+      .from("quests")
+      .select("id, name, xp_reward, is_active")
+      .eq("id", session.questId)
+      .maybeSingle();
+
+    if (questError || !quest || !quest.is_active) {
+      console.error(
+        "Quest submission quest lookup error:",
+        questError
+      );
+
+      activeQuestSessions.delete(telegramId);
+
+      await ctx.reply(
+        "This quest is no longer available."
+      );
+
+      return;
+    }
+
+    // Basic validation for the introduction
+    if (messageText.length < 20) {
+      await ctx.reply(
+        `✍️ *That's a little too short.*\n\n` +
+          `Please write at least *20 characters* so we can count your introduction as a valid submission.\n\n` +
+          `Tell us a little about yourself and why you joined Aeterna.`,
+        {
+          parse_mode: "Markdown",
+        }
+      );
+
+      return;
+    }
+
+    // Check again for an existing completion
+    const { data: existingCompletion, error: existingError } =
+      await supabase
+        .from("quest_completions")
+        .select("id, verified")
+        .eq("member_id", member.id)
+        .eq("quest_id", quest.id)
+        .maybeSingle();
+
+    if (existingError) {
+      console.error(
+        "Quest completion check error:",
+        existingError
+      );
+
+      await ctx.reply(
+        "Could not verify your quest status. Please try again."
+      );
+
+      return;
+    }
+
+    if (existingCompletion?.verified) {
+      activeQuestSessions.delete(telegramId);
+
+      await ctx.reply(
+        `✅ *Quest already completed!*\n\n` +
+          `You've already completed *${quest.name}*.\n\n` +
+          `⭐ XP earned: +${quest.xp_reward}`,
+        {
+          parse_mode: "Markdown",
+        }
+      );
+
+      return;
+    }
+
+    // Record quest completion
+    const { error: completionInsertError } = await supabase
+      .from("quest_completions")
+      .insert({
+        member_id: member.id,
+        quest_id: quest.id,
+        xp_awarded: quest.xp_reward,
+        verified: true,
+        verification_method: "telegram_message",
+      });
+
+    if (completionInsertError) {
+      console.error(
+        "Quest completion insert error:",
+        completionInsertError
+      );
+
+      await ctx.reply(
+        "We couldn't record your quest completion. Please try again."
+      );
+
+      return;
+    }
+
+    // Award XP through the existing XP system
+    const { error: xpError } = await supabase.rpc("award_xp", {
+      p_member_id: member.id,
+      p_amount: quest.xp_reward,
+      p_source: "quest",
+      p_reference_id: quest.id,
+      p_description: `Completed quest: ${quest.name}`,
+    });
+
+    if (xpError) {
+  console.error("Quest XP award error:", xpError);
+
+  // Remove the completion record so the member can retry
+  // if the XP award failed.
+  const { error: rollbackError } = await supabase
+    .from("quest_completions")
+    .delete()
+    .eq("member_id", member.id)
+    .eq("quest_id", quest.id);
+
+  if (rollbackError) {
+    console.error(
+      "Quest completion rollback error:",
+      rollbackError
+    );
+  }
+
+  await ctx.reply(
+    `⚠️ We couldn't award your XP yet.\n\n` +
+      `Your quest was not completed. Please try submitting again.`,
+    {
+      parse_mode: "Markdown",
+    }
+  );
+
+  activeQuestSessions.delete(telegramId);
+
+  return;
+}
+
+    // Get updated member data
+    const { data: updatedMember } = await supabase
+      .from("members")
+      .select("total_xp, level")
+      .eq("id", member.id)
+      .single();
+
+    activeQuestSessions.delete(telegramId);
+
+    await ctx.reply(
+      `🎉 *Quest Completed!*\n\n` +
+        `✅ ${quest.name}\n\n` +
+        `⭐ +${quest.xp_reward} XP earned!\n\n` +
+        `⭐ Total XP: ${updatedMember?.total_xp ?? "Updated"}\n` +
+        `🏆 Level: ${updatedMember?.level ?? "Updated"}\n\n` +
+        `Keep participating in the Aeterna community to earn more XP.`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(
+              "📋 More Quests",
+              "quests"
+            ),
+          ],
+          [
+            Markup.button.callback(
+              "🏆 Leaderboard",
+              "leaderboard"
+            ),
+          ],
+          [
+            Markup.button.callback(
+              "👤 My Profile",
+              "profile"
+            ),
+          ],
+        ]),
+      }
+    );
+  } catch (error) {
+    console.error(
+      "Quest submission handler error:",
+      error
+    );
+
+    await ctx.reply(
+      "Something went wrong while processing your quest submission."
+    );
+  }
+});
+
 // ================================
 // MY PROFILE
 // ================================
