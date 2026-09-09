@@ -117,11 +117,16 @@ const academyQuestions = [
   },
 ];
 
+bot.command("chatid", async (ctx) => {
+  await ctx.reply(`Chat ID: ${ctx.chat.id}`);
+});
+
 // ================================
 // REGISTER / START
 // ================================
 
 bot.start(async (ctx) => {
+
   try {
     const telegramId = String(ctx.from.id);
     const username = ctx.from.username ?? null;
