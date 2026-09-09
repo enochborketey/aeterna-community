@@ -733,13 +733,14 @@ bot.on("text", async (ctx, next) => {
     }
 
     // Award XP through the existing XP system
-    const { error: xpError } = await supabase.rpc("award_xp", {
-      p_member_id: member.id,
-      p_amount: quest.xp_reward,
-      p_source: "quest",
-      p_reference_id: quest.id,
-      p_description: `Completed quest: ${quest.name}`,
-    });
+   const { error: xpError } = await supabase.rpc("award_xp", {
+  p_member_id: member.id,
+  p_xp_amount: quest.xp_reward,
+  p_activity_type: "quest",
+  p_platform: "telegram",
+  p_description: `Completed quest: ${quest.name}`,
+  p_reference_id: quest.id,
+});
 
     if (xpError) {
   console.error("Quest XP award error:", xpError);
