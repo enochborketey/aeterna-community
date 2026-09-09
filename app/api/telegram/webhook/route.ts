@@ -37,7 +37,7 @@ const activeQuestSessions = new Map<
     startedAt: number;
   }
 >();
-const COMMUNITY_CHAT_ID = "-1001937772397";
+const COMMUNITY_CHAT_ID = "1004248298021";
 const activeQuizSessions = new Map<
   string,
   {
