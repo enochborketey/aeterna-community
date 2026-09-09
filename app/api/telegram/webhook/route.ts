@@ -311,6 +311,105 @@ bot.action("daily_checkin", async (ctx) => {
 });
 
 // ================================
+// QUEST CENTER
+// ================================
+
+bot.action("quests", async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+
+    const { data: quests, error } = await supabase
+      .from("quests")
+      .select(
+        "id, name, description, platform, xp_reward, quest_type"
+      )
+      .eq("is_active", true)
+      .eq("platform", "telegram")
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("Quest lookup error:", error);
+
+      await ctx.reply(
+        "Could not load the quest center. Please try again."
+      );
+
+      return;
+    }
+
+    if (!quests || quests.length === 0) {
+      await ctx.reply(
+        `📋 *Aeterna Quest Center*\n\n` +
+          `There are no active quests available right now.\n\n` +
+          `Check back soon.`,
+        {
+          parse_mode: "Markdown",
+          ...Markup.inlineKeyboard([
+            [
+              Markup.button.callback(
+                "🎯 Daily Check-in",
+                "daily_checkin"
+              ),
+            ],
+            [
+              Markup.button.callback(
+                "🔙 Community Hub",
+                "community_menu"
+              ),
+            ],
+          ]),
+        }
+      );
+
+      return;
+    }
+
+    let message = `📋 *AETERNA QUEST CENTER*\n\n`;
+
+    quests.forEach((quest, index) => {
+      message +=
+        `*${index + 1}. ${quest.name}*\n` +
+        `${quest.description || "Complete this community quest."}\n` +
+        `⭐ Reward: *+${quest.xp_reward} XP*\n\n`;
+    });
+
+    await ctx.reply(message, {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback(
+            "🎯 Daily Check-in",
+            "daily_checkin"
+          ),
+        ],
+        [
+          Markup.button.callback(
+            "👤 My Profile",
+            "profile"
+          ),
+          Markup.button.callback(
+            "🏆 Leaderboard",
+            "leaderboard"
+          ),
+        ],
+        [
+          Markup.button.callback(
+            "🔙 Community Hub",
+            "community_menu"
+          ),
+        ],
+      ]),
+    });
+  } catch (error) {
+    console.error("Quest center error:", error);
+
+    await ctx.reply(
+      "Something went wrong while loading the quest center."
+    );
+  }
+});
+
+// ================================
 // MY PROFILE
 // ================================
 
