@@ -120,7 +120,11 @@ const academyQuestions = [
 bot.command("chatid", async (ctx) => {
   await ctx.reply(`Chat ID: ${ctx.chat.id}`);
 });
-
+bot.command("threadid", async (ctx) => {
+  await ctx.reply(
+    `Chat ID: ${ctx.chat.id}\nThread ID: ${ctx.message.message_thread_id ?? "No topic"}`
+  );
+});
 // ================================
 // REGISTER / START
 // ================================
