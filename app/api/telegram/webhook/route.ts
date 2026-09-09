@@ -37,6 +37,85 @@ const activeQuestSessions = new Map<
     startedAt: number;
   }
 >();
+const activeQuizSessions = new Map<
+  string,
+  {
+    questId: string;
+    questionIndex: number;
+    score: number;
+    startedAt: number;
+  }
+>();
+
+const academyQuestions = [
+  {
+    question:
+      "What is a blockchain?",
+    options: [
+      {
+        label: "A distributed digital ledger",
+        correct: true,
+      },
+      {
+        label: "A centralized bank database",
+        correct: false,
+      },
+      {
+        label: "A social media platform",
+        correct: false,
+      },
+      {
+        label: "A type of computer monitor",
+        correct: false,
+      },
+    ],
+  },
+  {
+    question:
+      "What is a cryptocurrency wallet primarily used for?",
+    options: [
+      {
+        label: "Storing and managing access to crypto assets",
+        correct: true,
+      },
+      {
+        label: "Printing physical money",
+        correct: false,
+      },
+      {
+        label: "Creating internet websites",
+        correct: false,
+      },
+      {
+        label: "Sending traditional bank cheques",
+        correct: false,
+      },
+    ],
+  },
+  {
+    question:
+      "What does decentralization generally mean in blockchain networks?",
+    options: [
+      {
+        label: "Control is distributed across multiple participants",
+        correct: true,
+      },
+      {
+        label: "One company controls the entire network",
+        correct: false,
+      },
+      {
+        label: "Only one computer can access the network",
+        correct: false,
+      },
+      {
+        label: "Transactions are processed without any computers",
+        correct: false,
+      },
+    ],
+  },
+];
+
 // ================================
 // REGISTER / START
 // ================================
@@ -466,7 +545,7 @@ bot.action(/^start_quest_(.+)$/, async (ctx) => {
     // Find the quest
     const { data: quest, error: questError } = await supabase
       .from("quests")
-      .select("id, name, description, xp_reward, is_active")
+     .select("id, name, description, xp_reward, quest_type, is_active")
       .eq("id", questId)
       .maybeSingle();
 
@@ -529,6 +608,37 @@ bot.action(/^start_quest_(.+)$/, async (ctx) => {
         }
       );
 
+      if (quest.quest_type?.toLowerCase() === "quiz") {
+  activeQuizSessions.set(telegramId, {
+    questId: quest.id,
+    questionIndex: 0,
+    score: 0,
+    startedAt: Date.now(),
+  });
+
+  const firstQuestion = academyQuestions[0];
+
+  await ctx.answerCbQuery();
+
+  await ctx.reply(
+    `🎓 *Aeterna Academy*\n\n` +
+    `Question 1 of ${academyQuestions.length}\n\n` +
+    `*${firstQuestion.question}*`,
+    {
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard(
+        firstQuestion.options.map((option, index) => [
+          Markup.button.callback(
+            option.label,
+            `academy_answer_${index}`
+          ),
+        ])
+      ),
+    }
+  );
+
+  return;
+}
       return;
     }
 
@@ -557,6 +667,192 @@ bot.action(/^start_quest_(.+)$/, async (ctx) => {
       "Something went wrong while starting the quest."
     );
   }
+});
+bot.action(/^academy_answer_(\d+)$/, async (ctx) => {
+  const telegramId = String(ctx.from.id);
+
+  const session = activeQuizSessions.get(telegramId);
+
+  if (!session) {
+    await ctx.answerCbQuery("Quiz session expired. Please start again.");
+    return;
+  }
+
+  if (Date.now() - session.startedAt > 15 * 60 * 1000) {
+    activeQuizSessions.delete(telegramId);
+    await ctx.answerCbQuery("Quiz session expired.");
+    await ctx.reply("⏰ Your quiz session expired. Please start the Academy quiz again.");
+    return;
+  }
+
+  const answerIndex = Number(ctx.match[1]);
+  const currentQuestion = academyQuestions[session.questionIndex];
+
+  if (!currentQuestion) {
+    activeQuizSessions.delete(telegramId);
+    await ctx.answerCbQuery();
+    return;
+  }
+
+  const selectedOption = currentQuestion.options[answerIndex];
+
+  if (!selectedOption) {
+    await ctx.answerCbQuery("Invalid answer.");
+    return;
+  }
+
+  await ctx.answerCbQuery(
+    selectedOption.correct ? "✅ Correct!" : "❌ Incorrect!"
+  );
+
+  if (selectedOption.correct) {
+    session.score += 1;
+  }
+
+  session.questionIndex += 1;
+
+  // More questions remaining
+  if (session.questionIndex < academyQuestions.length) {
+    activeQuizSessions.set(telegramId, session);
+
+    const nextQuestion = academyQuestions[session.questionIndex];
+
+    await ctx.reply(
+      `🎓 *Aeterna Academy*\n\n` +
+      `Question ${session.questionIndex + 1} of ${academyQuestions.length}\n\n` +
+      `*${nextQuestion.question}*`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard(
+          nextQuestion.options.map((option, index) => [
+            Markup.button.callback(
+              option.label,
+              `academy_answer_${index}`
+            ),
+          ])
+        ),
+      }
+    );
+
+    return;
+  }
+
+  // Quiz finished
+  const finalScore = session.score;
+  const totalQuestions = academyQuestions.length;
+
+  activeQuizSessions.delete(telegramId);
+
+  if (finalScore < 2) {
+    await ctx.reply(
+      `🎓 *Aeterna Academy Complete*\n\n` +
+      `Your score: *${finalScore}/${totalQuestions}*\n\n` +
+      `You need at least *2/${totalQuestions}* correct answers to complete this quest.\n\n` +
+      `Try again when you're ready!`,
+      { parse_mode: "Markdown" }
+    );
+
+    return;
+  }
+
+  // Get member
+  const { data: member, error: memberError } = await supabase
+    .from("members")
+    .select("id, total_xp, level")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+
+  if (memberError || !member) {
+    await ctx.reply("❌ Could not find your Aeterna account. Please use /start and try again.");
+    return;
+  }
+
+  // Get quest
+  const { data: quest, error: questError } = await supabase
+    .from("quests")
+    .select("id, name, xp_reward")
+    .eq("id", session.questId)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (questError || !quest) {
+    await ctx.reply("❌ This quest is currently unavailable.");
+    return;
+  }
+
+  // Prevent duplicate completion
+  const { data: existingCompletion } = await supabase
+    .from("quest_completions")
+    .select("id, verified")
+    .eq("member_id", member.id)
+    .eq("quest_id", quest.id)
+    .maybeSingle();
+
+  if (existingCompletion?.verified) {
+    await ctx.reply("✅ You have already completed this quest.");
+    return;
+  }
+
+  // Record completion
+  const { data: completion, error: completionError } = await supabase
+    .from("quest_completions")
+    .insert({
+      member_id: member.id,
+      quest_id: quest.id,
+      xp_awarded: quest.xp_reward,
+      verified: true,
+      verification_method: "telegram_quiz",
+    })
+    .select("id")
+    .single();
+
+  if (completionError || !completion) {
+    console.error("Quiz completion error:", completionError);
+    await ctx.reply("❌ Could not record your quiz completion. Please try again.");
+    return;
+  }
+
+  // Award XP
+  const { error: xpError } = await supabase.rpc("award_xp", {
+    p_member_id: member.id,
+    p_xp_amount: quest.xp_reward,
+    p_activity_type: "quest",
+    p_platform: "telegram",
+    p_description: `Completed quest: ${quest.name}`,
+    p_reference_id: quest.id,
+  });
+
+  if (xpError) {
+    console.error("Quiz XP error:", xpError);
+
+    // Roll back completion if XP award fails
+    await supabase
+      .from("quest_completions")
+      .delete()
+      .eq("id", completion.id);
+
+    await ctx.reply(
+      "❌ Your completion could not be finalized. No XP was awarded. Please try again."
+    );
+    return;
+  }
+
+  // Get updated XP
+  const { data: updatedMember } = await supabase
+    .from("members")
+    .select("total_xp, level")
+    .eq("id", member.id)
+    .single();
+
+  await ctx.reply(
+    `🎉 *Aeterna Academy Complete!*\n\n` +
+    `Score: *${finalScore}/${totalQuestions}* ✅\n\n` +
+    `XP earned: *+${quest.xp_reward} XP*\n` +
+    `Total XP: *${updatedMember?.total_xp ?? member.total_xp} XP*\n` +
+    `Level: *${updatedMember?.level ?? member.level}*\n\n` +
+    `Keep going — there are more quests waiting for you!`,
+    { parse_mode: "Markdown" }
+  );
 });
 
 // ================================
