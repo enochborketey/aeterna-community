@@ -24,11 +24,47 @@ function communityMenu() {
   ]);
 }
 
+async function sendAeternaHub(ctx: any) {
+  await ctx.telegram.sendMessage(
+    COMMUNITY_CHAT_ID,
+    `🌟 *Aeterna Community Hub*\n\n` +
+      `Everything you need to participate, earn XP and climb the leaderboard is here.\n\n` +
+      `🎯 Check in daily\n` +
+      `🎓 Complete the Aeterna Academy\n` +
+      `📋 Complete quests\n` +
+      `💬 Participate in the community\n` +
+      `🏆 Climb the leaderboard\n` +
+      `🎁 Unlock rewards`,
+    {
+      message_thread_id: AETERNA_HUB_THREAD_ID,
+      parse_mode: "Markdown",
+      ...Markup.inlineKeyboard([
+        [
+          Markup.button.callback("🎯 Daily Check-in", "daily_checkin"),
+          Markup.button.callback("👤 My Profile", "profile"),
+        ],
+        [
+          Markup.button.callback("📋 Quest Center", "quests"),
+          Markup.button.callback("🏆 Leaderboard", "leaderboard"),
+        ],
+        [
+          Markup.button.callback("🎁 Rewards", "rewards"),
+          Markup.button.callback("🔗 Connect Account", "connect_account"),
+        ],
+      ]),
+    }
+  );
+}
+
+
 if (!token) {
   throw new Error("Missing TELEGRAM_BOT_TOKEN");
 }
 
 const bot = new Telegraf(token);
+bot.command("hub", async (ctx) => {
+  await sendAeternaHub(ctx);
+});
 
 const activeQuestSessions = new Map<
   string,
@@ -37,7 +73,9 @@ const activeQuestSessions = new Map<
     startedAt: number;
   }
 >();
-const COMMUNITY_CHAT_ID = "1004248298021";
+const COMMUNITY_CHAT_ID = "-1004248298021";
+const AETERNA_HUB_THREAD_ID = 21031;
+
 const activeQuizSessions = new Map<
   string,
   {
