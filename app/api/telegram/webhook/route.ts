@@ -37,6 +37,7 @@ const activeQuestSessions = new Map<
     startedAt: number;
   }
 >();
+const COMMUNITY_CHAT_ID = "-1001937772397";
 const activeQuizSessions = new Map<
   string,
   {
@@ -860,6 +861,113 @@ bot.action(/^academy_answer_(\d+)$/, async (ctx) => {
 // ================================
 
 bot.on("text", async (ctx, next) => {
+  // Community Discussion quest
+if (
+  (ctx.chat.type === "group" || ctx.chat.type === "supergroup") &&
+  String(ctx.chat.id) === COMMUNITY_CHAT_ID
+) {
+  const telegramId = String(ctx.from.id);
+  const messageText = ctx.message.text.trim();
+
+  // Ignore commands
+  if (messageText.startsWith("/")) {
+    return next();
+  }
+
+  // Require a meaningful message
+  if (messageText.length < 20) {
+    return;
+  }
+
+  // Find member
+  const { data: member, error: memberError } = await supabase
+    .from("members")
+    .select("id, total_xp, level")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+
+  if (memberError || !member) {
+    return;
+  }
+
+  // Find Community Discussion quest
+  const { data: quest, error: questError } = await supabase
+    .from("quests")
+    .select("id, name, xp_reward")
+    .eq("name", "Community Discussion")
+    .eq("platform", "telegram")
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (questError || !quest) {
+    console.error("Community Discussion quest error:", questError);
+    return;
+  }
+
+  // Check if member already completed today's discussion
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+
+  const { data: todayCompletion } = await supabase
+    .from("quest_completions")
+    .select("id")
+    .eq("member_id", member.id)
+    .eq("quest_id", quest.id)
+    .gte("completed_at", startOfDay.toISOString())
+    .limit(1)
+    .maybeSingle();
+
+  if (todayCompletion) {
+    return;
+  }
+
+  // Record completion
+  const { data: completion, error: completionError } = await supabase
+    .from("quest_completions")
+    .insert({
+      member_id: member.id,
+      quest_id: quest.id,
+      xp_awarded: quest.xp_reward,
+      verified: true,
+      verification_method: "telegram_group_message",
+    })
+    .select("id")
+    .single();
+
+  if (completionError || !completion) {
+    console.error("Community Discussion completion error:", completionError);
+    return;
+  }
+
+  // Award XP
+  const { error: xpError } = await supabase.rpc("award_xp", {
+    p_member_id: member.id,
+    p_xp_amount: quest.xp_reward,
+    p_activity_type: "quest",
+    p_platform: "telegram",
+    p_description: `Completed quest: ${quest.name}`,
+    p_reference_id: quest.id,
+  });
+
+  if (xpError) {
+    console.error("Community Discussion XP error:", xpError);
+
+    // Roll back completion if XP award fails
+    await supabase
+      .from("quest_completions")
+      .delete()
+      .eq("id", completion.id);
+
+    return;
+  }
+
+  await ctx.reply(
+    `💬 Community Discussion complete!\n\n` +
+    `You earned +${quest.xp_reward} XP for participating in the community.`
+  );
+
+  return;
+}
   try {
     const telegramId = String(ctx.from.id);
     const messageText = ctx.message.text.trim();
