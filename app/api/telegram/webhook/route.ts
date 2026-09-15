@@ -63,6 +63,15 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
+bot.on("callback_query", async (ctx, next) => {
+  console.log(
+    "TELEGRAM CALLBACK:",
+    JSON.stringify(ctx.callbackQuery)
+  );
+
+  await next();
+});
+
 bot.command("hub", async (ctx) => {
   await sendAeternaHub(ctx);
 });
