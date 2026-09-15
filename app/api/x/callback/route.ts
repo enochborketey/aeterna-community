@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
+import crypto from "crypto";
+import { supabase } from "@/lib/supabase";
 
 export async function GET(request: NextRequest) {
   try {
@@ -21,6 +23,58 @@ export async function GET(request: NextRequest) {
     if (!savedState || !codeVerifier || state !== savedState) {
       return NextResponse.json(
         { error: "Invalid OAuth state" },
+        { status: 400 }
+      );
+    }
+
+    // Decode the Telegram member ID from our signed state.
+    let memberId: string;
+
+    try {
+      const decodedState = Buffer.from(state, "base64url").toString("utf8");
+
+      const parts = decodedState.split(".");
+
+      if (parts.length !== 3) {
+        throw new Error("Invalid state format");
+      }
+
+      const [decodedMemberId, timestamp, signature] = parts;
+
+      const secret = process.env.X_OAUTH_STATE_SECRET;
+
+      if (!secret) {
+        throw new Error("Missing X_OAUTH_STATE_SECRET");
+      }
+
+      const payload = `${decodedMemberId}.${timestamp}`;
+
+      const expectedSignature = crypto
+        .createHmac("sha256", secret)
+        .update(payload)
+        .digest("hex");
+
+      if (
+        !crypto.timingSafeEqual(
+          Buffer.from(signature),
+          Buffer.from(expectedSignature)
+        )
+      ) {
+        throw new Error("Invalid state signature");
+      }
+
+      const stateAge = Date.now() - Number(timestamp);
+
+      if (stateAge > 10 * 60 * 1000) {
+        throw new Error("Connection request expired");
+      }
+
+      memberId = decodedMemberId;
+    } catch (error) {
+      console.error("X state verification error:", error);
+
+      return NextResponse.json(
+        { error: "Invalid or expired connection request" },
         { status: 400 }
       );
     }
@@ -68,7 +122,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(
         {
           error: "X authorization failed",
-          details: tokenData,
         },
         { status: 400 }
       );
@@ -98,13 +151,114 @@ export async function GET(request: NextRequest) {
 
     const xUser = userData.data;
 
-    return NextResponse.json({
+    // Make sure the Telegram member still exists.
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id")
+      .eq("id", memberId)
+      .maybeSingle();
+
+    if (memberError || !member) {
+      console.error("Member lookup error:", memberError);
+
+      return NextResponse.json(
+        { error: "Aeterna member account not found" },
+        { status: 400 }
+      );
+    }
+
+    // Check whether this X account is already connected.
+    const { data: existingLink, error: existingError } = await supabase
+      .from("platform_links")
+      .select("id, member_id")
+      .eq("platform", "x")
+      .eq("platform_user_id", xUser.id)
+      .maybeSingle();
+
+    if (existingError) {
+      console.error("Existing X link lookup error:", existingError);
+
+      return NextResponse.json(
+        { error: "Could not check existing X connection" },
+        { status: 500 }
+      );
+    }
+
+    // If this X account belongs to another Aeterna member, don't allow takeover.
+    if (existingLink && existingLink.member_id !== memberId) {
+      return NextResponse.json(
+        {
+          error:
+            "This X account is already connected to another Aeterna account.",
+        },
+        { status: 409 }
+      );
+    }
+
+    if (existingLink) {
+      const { error: updateLinkError } = await supabase
+        .from("platform_links")
+        .update({
+          platform_username: xUser.username,
+          verified: true,
+          verified_at: new Date().toISOString(),
+        })
+        .eq("id", existingLink.id);
+
+      if (updateLinkError) {
+        console.error("X link update error:", updateLinkError);
+
+        return NextResponse.json(
+          { error: "Could not update X connection" },
+          { status: 500 }
+        );
+      }
+    } else {
+      const { error: insertLinkError } = await supabase
+        .from("platform_links")
+        .insert({
+          member_id: memberId,
+          platform: "x",
+          platform_user_id: xUser.id,
+          platform_username: xUser.username,
+          verified: true,
+          verified_at: new Date().toISOString(),
+        });
+
+      if (insertLinkError) {
+        console.error("X link insert error:", insertLinkError);
+
+        return NextResponse.json(
+          { error: "Could not save X connection" },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Also update the member's X username.
+    const { error: memberUpdateError } = await supabase
+      .from("members")
+      .update({
+        x_username: xUser.username,
+      })
+      .eq("id", memberId);
+
+    if (memberUpdateError) {
+      console.error("Member X username update error:", memberUpdateError);
+    }
+
+    // Clear the temporary OAuth cookies.
+    const response = NextResponse.json({
       success: true,
       message: "X account connected successfully",
-      x_user_id: xUser.id,
       x_username: xUser.username,
       x_name: xUser.name,
     });
+
+    response.cookies.delete("x_oauth_state");
+    response.cookies.delete("x_oauth_verifier");
+
+    return response;
   } catch (error) {
     console.error("X callback error:", error);
 
