@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 
-export async function GET() {
+export async function GET(request: Request) {
   const clientId = process.env.X_CLIENT_ID;
 
   if (!clientId) {
@@ -11,7 +11,14 @@ export async function GET() {
     );
   }
 
-  const state = crypto.randomBytes(32).toString("hex");
+  const state = new URL(request.url).searchParams.get("state");
+
+  if (!state) {
+    return NextResponse.json(
+      { error: "Missing Telegram connection state" },
+      { status: 400 }
+    );
+  }
 
   const codeVerifier = crypto.randomBytes(32).toString("base64url");
 
@@ -40,7 +47,7 @@ export async function GET() {
   response.cookies.set("x_oauth_state", state, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+   sameSite: "none",
     maxAge: 600,
     path: "/",
   });
@@ -48,7 +55,7 @@ export async function GET() {
   response.cookies.set("x_oauth_verifier", codeVerifier, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+sameSite: "none",
     maxAge: 600,
     path: "/",
   });
