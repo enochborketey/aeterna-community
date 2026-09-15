@@ -62,6 +62,7 @@ if (!token) {
 }
 
 const bot = new Telegraf(token);
+
 bot.command("hub", async (ctx) => {
   await sendAeternaHub(ctx);
 });
