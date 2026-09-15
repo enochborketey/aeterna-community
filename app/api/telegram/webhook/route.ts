@@ -63,13 +63,57 @@ if (!token) {
 
 const bot = new Telegraf(token);
 
-bot.on("callback_query", async (ctx, next) => {
-  console.log(
-    "TELEGRAM CALLBACK:",
-    JSON.stringify(ctx.callbackQuery)
-  );
+bot.action("connect_account", async (ctx) => {
+  const telegramId = String(ctx.from.id);
 
-  await next();
+  const { data: member, error } = await supabase
+    .from("members")
+    .select("id")
+    .eq("telegram_id", telegramId)
+    .maybeSingle();
+
+  if (error || !member) {
+    await ctx.answerCbQuery();
+    await ctx.reply(
+      "❌ I couldn't find your Aeterna account. Please use /start first."
+    );
+    return;
+  }
+
+  try {
+    const state = createXTelegramState(member.id);
+
+    const connectUrl =
+      `https://aeterna-community-7ziu.vercel.app/api/x/connect?state=${encodeURIComponent(
+        state
+      )}`;
+
+    await ctx.answerCbQuery();
+
+    await ctx.reply(
+      `🔗 *Connect your X account*\n\n` +
+        `Connect your X account to Aeterna so we can verify your X activities and reward you with XP.\n\n` +
+        `Tap the button below to continue.`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.url(
+              "𝕏 Connect X Account",
+              connectUrl
+            ),
+          ],
+        ]),
+      }
+    );
+  } catch (error) {
+    console.error("X connection error:", error);
+
+    await ctx.answerCbQuery();
+    await ctx.reply(
+      "❌ Something went wrong while preparing your X connection."
+    );
+  }
 });
 
 bot.command("hub", async (ctx) => {
@@ -85,6 +129,25 @@ const activeQuestSessions = new Map<
 >();
 const COMMUNITY_CHAT_ID = "-1004248298021";
 const AETERNA_HUB_THREAD_ID = 21031;
+
+function createXTelegramState(memberId: string) {
+  const timestamp = Date.now().toString();
+
+  const payload = `${memberId}.${timestamp}`;
+
+  const secret = process.env.X_OAUTH_STATE_SECRET;
+
+  if (!secret) {
+    throw new Error("Missing X_OAUTH_STATE_SECRET");
+  }
+
+  const signature = crypto
+    .createHmac("sha256", secret)
+    .update(payload)
+    .digest("hex");
+
+  return Buffer.from(`${payload}.${signature}`).toString("base64url");
+}
 
 const activeQuizSessions = new Map<
   string,
