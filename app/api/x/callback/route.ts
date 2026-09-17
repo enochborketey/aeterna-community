@@ -200,11 +200,18 @@ export async function GET(request: NextRequest) {
     if (existingLink) {
       const { error: updateLinkError } = await supabase
         .from("platform_links")
-        .update({
-          platform_username: xUser.username,
-          verified: true,
-          verified_at: new Date().toISOString(),
-        })
+       .update({
+  platform_username: xUser.username,
+  verified: true,
+  verified_at: new Date().toISOString(),
+  x_access_token: accessToken,
+  x_refresh_token: tokenData.refresh_token ?? null,
+  x_token_expires_at: tokenData.expires_in
+    ? new Date(
+        Date.now() + Number(tokenData.expires_in) * 1000
+      ).toISOString()
+    : null,
+})
         .eq("id", existingLink.id);
 
       if (updateLinkError) {
@@ -219,13 +226,20 @@ export async function GET(request: NextRequest) {
       const { error: insertLinkError } = await supabase
         .from("platform_links")
         .insert({
-          member_id: memberId,
-          platform: "x",
-          platform_user_id: xUser.id,
-          platform_username: xUser.username,
-          verified: true,
-          verified_at: new Date().toISOString(),
-        });
+  member_id: memberId,
+  platform: "x",
+  platform_user_id: xUser.id,
+  platform_username: xUser.username,
+  verified: true,
+  verified_at: new Date().toISOString(),
+  x_access_token: accessToken,
+  x_refresh_token: tokenData.refresh_token ?? null,
+  x_token_expires_at: tokenData.expires_in
+    ? new Date(
+        Date.now() + Number(tokenData.expires_in) * 1000
+      ).toISOString()
+    : null,
+})
 
       if (insertLinkError) {
         console.error("X link insert error:", insertLinkError);
