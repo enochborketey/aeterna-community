@@ -153,10 +153,11 @@ export async function GET(request: NextRequest) {
 
     // Make sure the Telegram member still exists.
     const { data: member, error: memberError } = await supabase
-      .from("members")
-      .select("id")
-      .eq("id", memberId)
-      .maybeSingle();
+  .from("members")
+  .select("id, telegram_id, x_username")
+  .eq("id", memberId)
+  .maybeSingle();
+
 
     if (memberError || !member) {
       console.error("Member lookup error:", memberError);
@@ -166,6 +167,7 @@ export async function GET(request: NextRequest) {
         { status: 400 }
       );
     }
+    const isFirstXConnection = !member.x_username;
 
     // Check whether this X account is already connected.
     const { data: existingLink, error: existingError } = await supabase
@@ -246,6 +248,65 @@ export async function GET(request: NextRequest) {
     if (memberUpdateError) {
       console.error("Member X username update error:", memberUpdateError);
     }
+
+    // Send the Aeterna X introduction prompt after the member's first X connection.
+if (isFirstXConnection && member.telegram_id) {
+  try {
+    const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+
+    if (!telegramToken) {
+      console.error("Missing TELEGRAM_BOT_TOKEN");
+    } else {
+      const postText =
+        "Excited to be part of the @Aeterna_Web3 community! Looking forward to learning, contributing and growing with everyone in the ecosystem. 🌐";
+
+      const composeUrl = `https://x.com/intent/post?text=${encodeURIComponent(
+        postText
+      )}`;
+
+      const telegramResponse = await fetch(
+        `https://api.telegram.org/bot${telegramToken}/sendMessage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            chat_id: member.telegram_id,
+            text:
+              `🎉 X Account Connected!\n\n` +
+              `Your X account @${xUser.username} is now connected to Aeterna.\n\n` +
+              `🚀 Next Step: Introduce Aeterna on X\n\n` +
+              `Share why you're excited to be part of Aeterna and tag @Aeterna_Web3.\n\n` +
+              `We've prepared a post for you. Just tap the button below, review it, and publish it.`,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "📝 Make My Aeterna Post",
+                    url: composeUrl,
+                  },
+                ],
+              ],
+            },
+          }),
+        }
+      );
+
+      if (!telegramResponse.ok) {
+        console.error(
+          "Failed to send X introduction prompt:",
+          await telegramResponse.text()
+        );
+      }
+    }
+  } catch (telegramError) {
+    console.error(
+      "Telegram X introduction prompt error:",
+      telegramError
+    );
+  }
+}
 
     // Clear the temporary OAuth cookies.
     const response = NextResponse.json({
