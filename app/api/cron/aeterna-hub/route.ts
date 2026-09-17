@@ -6,6 +6,8 @@ const token = process.env.TELEGRAM_BOT_TOKEN;
 const COMMUNITY_CHAT_ID = "-1004248298021";
 const AETERNA_HUB_THREAD_ID = 21031;
 
+
+
 export async function GET(request: Request) {
   try {
     const authHeader = request.headers.get("authorization");
@@ -25,6 +27,8 @@ export async function GET(request: Request) {
     }
 
     const bot = new Telegraf(token);
+
+    
 
     await bot.telegram.sendMessage(
       COMMUNITY_CHAT_ID,

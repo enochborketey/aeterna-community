@@ -293,16 +293,22 @@ if (isFirstXConnection && member.telegram_id) {
               `🚀 Next Step: Introduce Aeterna on X\n\n` +
               `Share why you're excited to be part of Aeterna and tag @Aeterna_Web3.\n\n` +
               `We've prepared a post for you. Just tap the button below, review it, and publish it.`,
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text: "📝 Make My Aeterna Post",
-                    url: composeUrl,
-                  },
-                ],
-              ],
-            },
+           reply_markup: {
+  inline_keyboard: [
+    [
+      {
+        text: "📝 Make My Aeterna Post",
+        url: composeUrl,
+      },
+    ],
+    [
+      {
+        text: "✅ I've Posted — Verify",
+        callback_data: "verify_x_intro",
+      },
+    ],
+  ],
+},
           }),
         }
       );

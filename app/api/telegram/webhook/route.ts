@@ -518,6 +518,246 @@ bot.action("daily_checkin", async (ctx) => {
 });
 
 // ================================
+// VERIFY X INTRODUCTION POST
+// ================================
+
+bot.action("verify_x_intro", async (ctx) => {
+  try {
+    await ctx.answerCbQuery("Checking your X post...");
+
+    const telegramId = String(ctx.from.id);
+
+    // Find Aeterna member
+    const { data: member, error: memberError } = await supabase
+      .from("members")
+      .select("id, total_xp, level, is_banned")
+      .eq("telegram_id", telegramId)
+      .maybeSingle();
+
+    if (memberError || !member) {
+      await ctx.reply(
+        "❌ I couldn't find your Aeterna account. Please use /start first."
+      );
+      return;
+    }
+
+    if (member.is_banned) {
+      await ctx.reply(
+        "Your Aeterna account is currently restricted from participating."
+      );
+      return;
+    }
+
+    // Find connected X account
+    const { data: xLink, error: xLinkError } = await supabase
+      .from("platform_links")
+      .select(
+        "id, platform_user_id, platform_username, x_access_token, verified_at"
+      )
+      .eq("member_id", member.id)
+      .eq("platform", "x")
+      .eq("verified", true)
+      .maybeSingle();
+
+    if (xLinkError || !xLink) {
+      await ctx.reply(
+        "❌ Your X account is not connected yet.\n\nPlease connect your X account first."
+      );
+      return;
+    }
+
+    if (!xLink.x_access_token) {
+      await ctx.reply(
+        "❌ Your X authorization is missing. Please reconnect your X account and try again."
+      );
+      return;
+    }
+
+    // Find the X introduction quest
+    const { data: quest, error: questError } = await supabase
+      .from("quests")
+      .select("id, name, xp_reward, is_active")
+      .eq("name", "Introduce Aeterna on X")
+      .eq("platform", "x")
+      .maybeSingle();
+
+    if (questError || !quest || !quest.is_active) {
+      console.error("X introduction quest lookup error:", questError);
+
+      await ctx.reply(
+        "❌ The X introduction quest is currently unavailable."
+      );
+      return;
+    }
+
+    // Check if already completed
+    const { data: existingCompletion } = await supabase
+      .from("quest_completions")
+      .select("id, verified")
+      .eq("member_id", member.id)
+      .eq("quest_id", quest.id)
+      .maybeSingle();
+
+    if (existingCompletion?.verified) {
+      await ctx.reply(
+        `✅ You've already completed *${quest.name}*.\n\n` +
+        `⭐ XP earned: +${quest.xp_reward} XP`,
+        {
+          parse_mode: "Markdown",
+        }
+      );
+      return;
+    }
+
+    // Get the member's recent X posts
+    const tweetsUrl =
+      `https://api.x.com/2/users/${encodeURIComponent(
+        xLink.platform_user_id
+      )}/tweets` +
+      `?max_results=10` +
+      `&tweet.fields=created_at,text,entities`;
+
+    const tweetsResponse = await fetch(tweetsUrl, {
+      headers: {
+        Authorization: `Bearer ${xLink.x_access_token}`,
+      },
+    });
+
+    const tweetsData = await tweetsResponse.json();
+
+    if (!tweetsResponse.ok) {
+      console.error("X tweets lookup error:", tweetsData);
+
+      await ctx.reply(
+        "❌ I couldn't check your X posts right now.\n\n" +
+        "Please make sure your X account is connected and try again."
+      );
+      return;
+    }
+
+    const tweets = tweetsData.data ?? [];
+
+    // Only consider posts made after the X connection was verified.
+    const connectionTime = new Date(xLink.verified_at).getTime();
+
+    const matchingTweet = tweets.find((tweet: any) => {
+      if (!tweet.created_at || !tweet.text) {
+        return false;
+      }
+
+      const tweetTime = new Date(tweet.created_at).getTime();
+
+      if (tweetTime < connectionTime) {
+        return false;
+      }
+
+      return /@Aeterna_Web3/i.test(tweet.text);
+    });
+
+    if (!matchingTweet) {
+      await ctx.reply(
+        "🔍 I couldn't find your Aeterna post yet.\n\n" +
+        "Make sure you have published the post and tagged @Aeterna_Web3.\n\n" +
+        "Then tap *✅ I've Posted — Verify* again.",
+        {
+          parse_mode: "Markdown",
+        }
+      );
+      return;
+    }
+
+    // Record verified completion
+    const { data: completion, error: completionError } =
+      await supabase
+        .from("quest_completions")
+        .insert({
+          member_id: member.id,
+          quest_id: quest.id,
+          xp_awarded: quest.xp_reward,
+          verified: true,
+          verification_method: "x_api",
+          zealy_claim_id: matchingTweet.id,
+        })
+        .select("id")
+        .single();
+
+    if (completionError || !completion) {
+      console.error(
+        "X quest completion error:",
+        completionError
+      );
+
+      await ctx.reply(
+        "❌ I found your post, but couldn't record the quest completion. Please try again."
+      );
+      return;
+    }
+
+    // Award XP
+    const { error: xpError } = await supabase.rpc("award_xp", {
+      p_member_id: member.id,
+      p_xp_amount: quest.xp_reward,
+      p_activity_type: "quest",
+      p_platform: "x",
+      p_description: `Completed quest: ${quest.name}`,
+      p_reference_id: quest.id,
+    });
+
+    if (xpError) {
+      console.error("X quest XP error:", xpError);
+
+      await supabase
+        .from("quest_completions")
+        .delete()
+        .eq("id", completion.id);
+
+      await ctx.reply(
+        "❌ Your post was verified, but the XP award failed. Please try again."
+      );
+      return;
+    }
+
+    // Get updated XP
+    const { data: updatedMember } = await supabase
+      .from("members")
+      .select("total_xp, level")
+      .eq("id", member.id)
+      .single();
+
+    await ctx.reply(
+      `🎉 *Aeterna X Quest Complete!*\n\n` +
+      `✅ Your post was successfully verified.\n\n` +
+      `⭐ XP earned: +${quest.xp_reward} XP\n` +
+      `⭐ Total XP: ${updatedMember?.total_xp ?? member.total_xp}\n` +
+      `🏆 Level: ${updatedMember?.level ?? member.level}\n\n` +
+      `Keep contributing to the Aeterna community!`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [
+            Markup.button.callback(
+              "📋 More Quests",
+              "quests"
+            ),
+          ],
+          [
+            Markup.button.callback(
+              "🏆 Leaderboard",
+              "leaderboard"
+            ),
+          ],
+        ]),
+      }
+    );
+  } catch (error) {
+    console.error("X introduction verification error:", error);
+
+    await ctx.reply(
+      "❌ Something went wrong while verifying your X post. Please try again."
+    );
+  }
+});
+// ================================
 // QUEST CENTER
 // ================================
 
