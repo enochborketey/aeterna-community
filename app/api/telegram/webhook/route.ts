@@ -574,11 +574,25 @@ bot.action("verify_x_intro", async (ctx) => {
     }
 
     // Find the X introduction quest
-  const { data: xQuests, error: xQuestsError } =
+  const { data: allQuests, error: allQuestsError } =
   await supabase
     .from("quests")
-    .select("id, name, platform, xp_reward, is_active")
-    .eq("platform", "x");
+    .select("id, name, platform, xp_reward, is_active");
+
+console.log("ALL QUESTS FROM SUPABASE:", {
+  allQuests,
+  allQuestsError,
+});
+
+const xQuests =
+  allQuests?.filter((q) => q.platform === "x") ?? [];
+
+const xQuestsError = allQuestsError;
+
+console.log("X QUESTS FROM SUPABASE:", {
+  xQuests,
+  xQuestsError,
+});
 
 console.log("X QUESTS FROM SUPABASE:", {
   xQuests,
