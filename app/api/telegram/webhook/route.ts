@@ -574,27 +574,39 @@ bot.action("verify_x_intro", async (ctx) => {
     }
 
     // Find the X introduction quest
-    const { data: quest, error: questError } =
+  const { data: xQuests, error: xQuestsError } =
   await supabase
     .from("quests")
     .select("id, name, platform, xp_reward, is_active")
-    .eq("name", "Introduce Aeterna on X")
-    .limit(1)
-    .maybeSingle();
+    .eq("platform", "x");
 
-console.log("X quest lookup result:", {
+console.log("X QUESTS FROM SUPABASE:", {
+  xQuests,
+  xQuestsError,
+});
+
+const quest = xQuests?.find(
+  (q) => q.name === "Introduce Aeterna on X"
+);
+
+const questError = xQuestsError;
+
+console.log("SELECTED X QUEST:", {
   quest,
   questError,
 });
 
-    if (questError || !quest || !quest.is_active) {
-      console.error("X introduction quest lookup error:", questError);
+if (questError || !quest || !quest.is_active) {
+  console.error("X introduction quest lookup error:", {
+    quest,
+    questError,
+  });
 
-      await ctx.reply(
-        "❌ The X introduction quest is currently unavailable."
-      );
-      return;
-    }
+  await ctx.reply(
+    "❌ The X introduction quest is currently unavailable."
+  );
+  return;
+}
 
     // Check if already completed
     const { data: existingCompletion } = await supabase
