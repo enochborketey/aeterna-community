@@ -599,15 +599,17 @@ console.log("X QUESTS FROM SUPABASE:", {
   xQuestsError,
 });
 
-const quest = xQuests?.find(
-  (q) => q.name === "Introduce Aeterna on X"
-);
+const quest =
+  xQuests?.find(
+    (q) => q.name?.trim() === "Introduce Aeterna on X"
+  ) ?? xQuests?.[0];
 
 const questError = xQuestsError;
 
 console.log("SELECTED X QUEST:", {
   quest,
   questError,
+  questCount: xQuests?.length ?? 0,
 });
 
 if (questError || !quest || !quest.is_active) {
